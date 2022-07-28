@@ -1,0 +1,8 @@
+<extension name="1020"> 
+    <condition field="destination_number" expression="^102[0-9]$"> 
+    <action application="set" data="dialed_extension=${destination_number}"/>  
+    <action application="export" data="dialed_extension=${dialed_extension}"/>  
+            <action application="python" data="ccfwd"/> 
+    <action application="bridge" data="user/${dialed_extension}"/>  
+    </condition> 
+</extension> 
