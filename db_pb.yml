@@ -1,0 +1,331 @@
+
+---
+- hosts: all
+  become: yes
+#  gather_facts: false
+  vars_files:
+    - vars.yml
+
+  pre_tasks:
+    - name: "Install packages"
+      become: true
+      apt: "name={{ item }} state=present update_cache=true force_apt_get=yes"
+      loop: "{{ lookup('file', 'packages.txt').split('\n') }}"
+      tags:
+        - psql
+        - fs
+
+    - name: "Install Python packages"
+      pip: "name={{ item }}  state=present"
+      with_items:
+        - psycopg2-binary
+      tags:
+        - psql
+        - fs
+
+  tasks:
+    - name: "check if PostgreSQL is initialized"
+      ansible.builtin.stat:
+        path: "{{ postgresql_data_dir }}/pg_hba.conf"
+      register: postgres_data
+      tags:
+        - psql
+
+
+    - name: Empty data dir
+      ansible.builtin.file:
+        path: "{{ postgresql_data_dir }}"
+        state: absent
+      when: not postgres_data.stat.exists
+      tags:
+        - psql
+
+
+    - name: "Initialize PostgreSQL"
+      ansible.builtin.shell: "{{ postgresql_bin_path }}/initdb -D {{ postgresql_data_dir }}"
+      become: true
+      become_user: postgres
+      when: not postgres_data.stat.exists
+      tags:
+        - psql
+
+    - name: add permissions in pg_hba.conf
+      lineinfile:
+        state: present
+        insertafter: EOF
+        dest: "{{ postgresql_data_dir }}/pg_hba.conf"
+        line: "{{ item }}"
+      with_items:
+       - "host    all    all    79.142.255.0/24    md5"
+       - "host    all    all    81.16.121.78/32    md5"
+       - "host    all    all    172.20.0.0/16    md5"
+      tags:
+        - psql
+
+    - name: add permissions in postgresql.conf
+      lineinfile:
+        state: present
+        insertafter: EOF
+        dest: "{{ postgresql_data_dir }}/postgresql.conf"
+        line: "{{ item }}"
+      with_items:
+       - "listen_address='*'"
+      notify: restart postgresql
+      tags:
+        - psql
+
+    - name: "Start and enable services"
+      ansible.builtin.service:
+        name: postgresql
+        state: started
+        enabled: true
+      tags:
+        - psql
+
+    - name: "Create database"
+      postgresql_db:
+        state: present
+        name: "{{ db_name }}"
+      become: yes
+      become_user: postgres
+      tags:
+        - psql
+
+    - name: "Create database"
+      postgresql_db:
+        state: present
+        name: "{{ db2_name }}"
+      become: yes
+      become_user: postgres
+      tags:
+        - psql
+
+    - name: Backup directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        mode: 0777
+        owner: postgres
+        state: directory
+      tags:
+        - backup
+        - psql
+
+
+    - name: copy fsdir.sql file to remote
+      become: true
+      become_user: postgres
+      copy:
+        src: fsdir.sql
+        dest: "{{backup_dir}}"
+      tags:
+        - psql
+        - restore
+
+
+    - name: copy  auto backup file to remote
+      become: true
+      become_user: postgres
+      copy:
+        src: bk_psql.sh
+        dest: "{{backup_dir}}"
+      tags:
+        - psql
+        
+        
+    - name:  chmod auto backup file in remote
+      become: true
+      file: dest={{backup_dir}}/bk_psql.sh mode=a+x
+      tags:
+        - psql
+        - copyautobk
+
+    - name: Add the psql user 'fsuser' with 'PASS' password 
+      ansible.builtin.user:
+        name: fsuser
+        shell: /bin/bash
+        password: $6$xyz$JX/fFVRWUxAUMdr3Gi7m6CwDwi.mBM0lNy1Kujp6cR8FmDmyXnA/2U.ioEmx.OIQE4O.7iEE1FJr.XY4i8dUK.
+      tags:
+        - psql
+
+    - name: "Create db admin user"
+      postgresql_user:
+        state: present
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+      become: yes
+      become_user: postgres
+      tags:
+        - psql
+        
+    - name: populate db
+      community.postgresql.postgresql_db:
+        state: restore
+        name: "{{ db2_name }}"
+        target: "{{ backup_dir }}/{{ db_name }}.sql"
+      become: true
+      become_user: postgres
+      tags:
+        - psql
+        - restore
+        
+    - name: "Grant db user admin access to db"
+      postgresql_privs:
+        type: database
+        database: "{{ db2_name }}"
+        roles: "{{ db_user }}"
+        grant_option: no
+        privs: all
+      become: yes
+      become_user: postgres
+      tags:
+        - psql
+
+    - name: Backup db
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        state: dump
+        name: "{{ db2_name }}"
+        target: "{{ backup_dir }}/{{ db2_name }}-{{ansible_date_time.date}}-{{ansible_date_time.hour}}.gz"
+      tags:
+        - psql
+        - backup
+        
+    - name: add cronjob
+      become: true
+      lineinfile:
+        state: present
+        insertafter: EOF
+        dest: "/etc/crontab"
+        line: "{{ item }}"
+      with_items:
+       - "59   23   *   *   *   postgres  {{ backup_dir }}/bk_psql.sh"
+      tags:
+        - psql
+        - copyautobk
+
+#    - name: "with ansible cronjob"
+#       ansible.builtin.cron:
+#        name: "psqlbk"
+#        state: present
+#        minute: "59"
+#        hour: "23"
+#        day: "*"
+#        month: "*"
+#        weekday: "*"
+
+
+    - name:  allow ssh in firewall
+      community.general.ufw:
+        rule: allow
+        port: ssh
+      become: true
+      tags:
+        - ufw
+        
+    - name:  limit ssh in firewall
+      community.general.ufw:
+        rule: limit
+        port: ssh
+        proto: tcp
+      become: true
+      tags:
+        - ufw
+
+
+    - name:  allow sip in firewall
+      community.general.ufw:
+        rule: allow
+        port: 5060:5061
+        proto: tcp
+      become: true
+      tags:
+        - ufw
+        
+
+    - name:  allow sip (udp) in firewall
+      community.general.ufw:
+        rule: allow
+        port: 5060:5061
+        proto: udp
+      become: true
+      tags:
+        - ufw
+        
+
+    - name:  enable firewall
+      community.general.ufw:
+        state: enabled
+      become: true
+      tags:
+        - ufw
+
+    - name:  set logging
+      community.general.ufw:
+        logging: on
+      become: true
+      tags:
+        - ufw
+    
+    - name: add daily log rotation with 7days retention (postgres )
+      lineinfile:
+        state: present
+        insertafter: EOF
+        dest: "{{ postgresql_conf }}/postgresql.conf"
+        line: "{{ item }}"
+      with_items:
+       - "log_directory = 'log' "
+       - "log_filename = 'postgresql-%a.log'"
+       - "log_file_mode = 0600"
+       - "log_truncate_on_rotation = on"
+       - "log_rotation_age = 1d"
+      tags:
+        - psql
+        - logset
+
+
+    - name: log file directory (FS)
+      become: true
+      ansible.builtin.file:
+        path: "{{ fs_bk_dir }}"
+        mode: 0777
+        owner: freeswitch
+        state: directory
+      tags:
+        - fslogset
+        - fs
+
+
+    - name: copy log backup file to remote (FS)
+      become: true
+      copy:
+        src: fslog_cron.sh
+        dest: "/etc/cron.daily"
+      tags:
+        - fslogset
+        - fs
+        
+        
+    - name:  chmod auto backup file in remote (FS)
+      become: true
+      file: dest=/etc/cron.daily/fslog_cron.sh mode=a+x
+      tags:
+        - fslogset
+        - fs
+
+
+    - name: Set retention to 7days (FS)
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/logfile.conf.xml"
+        regexp: 'name="maximum-rotate" value="32"'
+        replace: 'name="maximum-rotate" value="7"'
+      tags:
+        - fslogset
+        - fs
+
+
+  handlers:
+    - name: restart postgres
+      service: name=postgresql state=restarted
+
