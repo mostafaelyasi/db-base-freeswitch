@@ -33,4 +33,4 @@
     - name: Set up authorized keys for the sysops user
       authorized_key: user=sysops key="{{item}}"
       with_file:
-        - /home/ansi_ctrl/.ssh/id_rsa.pub 
+        - /home/ansictrl/.ssh/id_rsa.pub 
