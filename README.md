@@ -8,7 +8,7 @@ ansible-playbook playbook_iac.yml --ask-vault-pass
 
 2- create sysops user in remote machine for ansible
 
-ansible-playbook playbook_adduser.yml -u ansictrl -k
+ansible-playbook playbook_adduser.yml -u remoteuser --ask-become-pass -k
 
 3- Installation and configuration of postgres 
 
