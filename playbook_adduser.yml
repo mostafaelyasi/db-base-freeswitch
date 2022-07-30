@@ -1,6 +1,8 @@
 ---
 - hosts: all
   become: yes
+  become_user: root
+  become_method: sudo
   tasks:
     - name: Make sure we have an 'ansible' group
       when: ansible_os_family == 'Debian' 
@@ -20,7 +22,7 @@
       user:
         name=sysops
         password="$1$1111$q86agydk.EzAME6d3tnor0"
-        groups=ansible,sysops
+        groups=ansible
         append=yes
         shell=/bin/bash
         state=present
@@ -33,4 +35,4 @@
     - name: Set up authorized keys for the sysops user
       authorized_key: user=sysops key="{{item}}"
       with_file:
-        - /home/sysops/.ssh/id_rsa.pub 
+        - /home/mostafa/.ssh/id_rsa.pub 
