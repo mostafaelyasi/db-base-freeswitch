@@ -1,0 +1,55 @@
+---
+- hosts: localhost
+  gather_facts: no
+  vars_files:
+    - vars/iacvar.yml
+  tasks:
+    - name: Deploy VM from "{{ template_name }}"
+      vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: no
+        datacenter: "{{ datacenter_name }}"
+        state: present 
+        #powered on
+        folder:  /{{ datacenter_name }}/vm/{{ folder }}
+        template: "{{ template_name }}"
+        name: "{{ vm_name }}"
+        cluster: "{{ cluster_name }}"
+        datastore: "{{ virtual_machine_datastore }}"
+        networks:
+          - name: "{{ vm_net_name }}"
+            ## vlan: "{{ vLan_104_ID }}"
+            ip: "{{ IP_104 }}"
+            netmask: "{{ netmask_104 }}"
+            gateway: "{{ gateway_104 }}"
+            type: static
+            start_connected: yes
+            # dns_servers:
+            #   - "{{ DNS1 }}"
+            #   - "{{ DNS2 }}"
+          # - name: VM Network
+          #   vlan: "{{ vLan_105_ID }}"
+          #   ip: "{{ IP_105 }}"
+          #   netmask: "{{ netmask_105 }}"
+          #   type: static
+        customization:
+          existing_vm: True
+          hostname: "{{ vm_name }}"
+          dns_servers:
+            - "{{ DNS1 }}"
+            - "{{ DNS2 }}"
+        wait_for_ip_address: no
+        disk:
+        - size_gb: 110
+          # type: thin
+          # datastore: datastore1
+        hardware:
+          memory_mb: "{{ RAM }}"
+          num_cpus: "{{ CPU }}"
+          num_cpu_cores_per_socket: "{{ cores_per_socket }}"
+          hotadd_cpu: True
+          hotremove_cpu: True
+          hotadd_memory: True
+      delegate_to: localhost 
