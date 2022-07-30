@@ -1,0 +1,32 @@
+##### vCenter #####
+vcenter_hostname: "10.10.10.12"
+vcenter_username: "administrator@vsphere.local"
+vcenter_password: !vault |
+		  $ANSIBLE_VAULT;1.1;AES256
+		  62303235383064643566356538343730323066356231633637336365363632376230366133383935
+		  6662633662663764303435336266383363653536336237360a303466333332313936393935323936
+		  66613165343838336639373835373863353537653431636464366564383266393534656430653337
+		  3835626339306438340a616266613535376230333864636437623531636262346330343161653031
+		  3835
+datacenter_name: "HQ_DC"
+cluster_name: "MyCluster"
+folder: "/"
+template_name: "ubuntu20"
+vm_name: "ansiVM34"
+virtual_machine_datastore: Data_Storage
+##### networks #####
+# vLan 104
+vm_net_name: network-services
+vLan_104_ID: 104
+IP_104: 172.20.104.34
+netmask_104: 255.255.255.0
+gateway_104: 172.20.104.254
+DNS1: 172.20.104.1
+DNS2: 8.8.8.8
+##### hardware #####
+RAM: 4096
+# 4 GB
+CPU: 4
+# 4 Core
+cores_per_socket: 2
+ 
