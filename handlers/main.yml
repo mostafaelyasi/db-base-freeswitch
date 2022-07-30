@@ -1,0 +1,17 @@
+---
+- name: Freeswitch reload
+  command: "fs_cli -x reloadxml && fs_cli -x load module mod_bcg729"
+
+- name: restart freeswitch
+  service: name=freeswitch state=restarted
+
+- name: Restart systemd-timesyncd
+  service:
+    name: 'systemd-timesyncd'
+    state: 'restarted'
+  
+- name: restart postgres
+  service: 
+    name=postgresql
+    state=restarted
+  become: yes
