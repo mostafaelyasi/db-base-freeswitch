@@ -1,6 +1,6 @@
 # db-base-freeswitch
 FreeSwitch based on postgres db.
-
+It has been tested on ubuntu 20.04
 
 1- create virtual machin (copy template to vm in vmware vcenter)
 
