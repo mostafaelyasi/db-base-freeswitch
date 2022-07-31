@@ -4,7 +4,7 @@
   become: yes
 #  gather_facts: false
   vars_files:
-    - vars.yml
+    - vars/vars.yml
 
   pre_tasks:
     - name: "Install packages"
@@ -12,18 +12,17 @@
       apt: "name={{ item }} state=present update_cache=true force_apt_get=yes"
       loop: "{{ lookup('file', 'packages.txt').split('\n') }}"
       tags:
-        - psql
-        - fs
+        - pre-task
 
     - name: "Install Python packages"
       pip: "name={{ item }}  state=present"
       with_items:
         - psycopg2-binary
       tags:
-        - psql
-        - fs
+        - pre-task        
 
   tasks:
+################  PostgreSQL Configuration   ##################  
     - name: "check if PostgreSQL is initialized"
       ansible.builtin.stat:
         path: "{{ postgresql_data_dir }}/pg_hba.conf"
@@ -63,6 +62,7 @@
         - psql
 
     - name: add permissions in postgresql.conf
+      become: yes
       lineinfile:
         state: present
         insertafter: EOF
@@ -74,15 +74,23 @@
       tags:
         - psql
 
-    - name: "Start and enable services"
+    - name: "Enable and start services"
+      become: yes
       ansible.builtin.service:
         name: postgresql
         state: started
-        enabled: true
+        enabled: yes     
       tags:
         - psql
 
-    - name: "Create database"
+    - name: restart postgresql services
+      check_mode: no
+      command: 'systemctl restart postgresql.service'
+      become: yes
+      tags:
+        - psql
+        
+    - name: "Create database fscore"
       postgresql_db:
         state: present
         name: "{{ db_name }}"
@@ -91,7 +99,7 @@
       tags:
         - psql
 
-    - name: "Create database"
+    - name: "Create database fsdir"
       postgresql_db:
         state: present
         name: "{{ db2_name }}"
@@ -127,18 +135,18 @@
       become: true
       become_user: postgres
       copy:
-        src: bk_psql.sh
+        src: Bk_sql.sh
         dest: "{{backup_dir}}"
       tags:
         - psql
-        
+        - backup        
         
     - name:  chmod auto backup file in remote
       become: true
-      file: dest={{backup_dir}}/bk_psql.sh mode=a+x
+      file: dest={{backup_dir}}/Bk_sql.sh mode=a+x
       tags:
         - psql
-        - copyautobk
+        - backup
 
     - name: Add the psql user 'fsuser' with 'PASS' password 
       ansible.builtin.user:
@@ -162,17 +170,29 @@
       community.postgresql.postgresql_db:
         state: restore
         name: "{{ db2_name }}"
-        target: "{{ backup_dir }}/{{ db_name }}.sql"
-      become: true
+        target: "{{ backup_dir }}/{{ db2_name }}.sql"
+      become: yes
       become_user: postgres
       tags:
         - psql
         - restore
         
-    - name: "Grant db user admin access to db"
+    - name: "Grant db user admin access to fsdir db"
       postgresql_privs:
         type: database
         database: "{{ db2_name }}"
+        roles: "{{ db_user }}"
+        grant_option: no
+        privs: all
+      become: yes
+      become_user: postgres
+      tags:
+        - psql
+
+    - name: "Grant db user admin access to fscore db"
+      postgresql_privs:
+        type: database
+        database: "{{ db_name }}"
         roles: "{{ db_user }}"
         grant_option: no
         privs: all
@@ -200,20 +220,543 @@
         dest: "/etc/crontab"
         line: "{{ item }}"
       with_items:
-       - "59   23   *   *   *   postgres  {{ backup_dir }}/bk_psql.sh"
+       - "59   23   *   *   *   postgres  {{ backup_dir }}/Bk_sql.sh"
       tags:
         - psql
-        - copyautobk
-
+        - backup
+   
 #    - name: "with ansible cronjob"
 #       ansible.builtin.cron:
-#        name: "psqlbk"
+#        name: "bk_psql"
 #        state: present
 #        minute: "59"
 #        hour: "23"
 #        day: "*"
 #        month: "*"
 #        weekday: "*"
+
+    - name: add daily log rotation with 7days retention (postgres )
+      lineinfile:
+        state: present
+        insertafter: EOF
+        dest: "{{ postgresql_conf }}/postgresql.conf"
+        line: "{{ item }}"
+      with_items:
+       - "log_directory = 'log' "
+       - "log_filename = 'postgresql-%a.log'"
+       - "log_file_mode = 0600"
+       - "log_truncate_on_rotation = on"
+       - "log_rotation_age = 1d"
+      tags:
+        - psql
+        - logset
+           
+#######  FreeSwitch requirements installation from source   ######
+   
+    - name: Read libks from github
+      ansible.builtin.git:
+        repo: 'https://github.com/signalwire/libks.git'
+        dest: /usr/src/libks
+#        clone: yes
+#        update: no   
+      register: libks_dld
+      tags:
+        - fs-pre
+        - fs        
+
+        
+    - name: cmake libks
+      become: yes
+      shell: cmake .
+      args:
+        chdir: /usr/src/libks
+      tags:
+        - fs-pre
+        - fs        
+      
+
+    - name: make and install libks
+      become: yes
+      shell: make && make install
+      args:
+        chdir: /usr/src/libks
+      tags:
+        - fs-pre
+        - fs    
+              
+    - name: Build libks
+      become: yes
+      make:
+        chdir: /usr/src/libks
+        target: all
+#        file: /usr/src/libks/Makefile
+      become: yes
+      tags:
+        - fs-pre
+        - fs 
+        
+           
+    - name: Read signalwire from github
+      ansible.builtin.git:
+        repo: 'https://github.com/signalwire/signalwire-c.git'
+        dest: /usr/src/signalwire-c
+      register: signalwire_dld        
+      tags:
+        - fs-pre
+        - fs 
+        
+    - name: cmake signalwire
+      become: yes
+      shell: "cmake ."
+      args:
+        chdir: /usr/src/signalwire-c
+      tags:
+        - fs-pre
+        - fs          
+        
+    - name: Build signalwire-c
+      become: yes
+      shell: make && make install
+      args:
+        chdir: /usr/src/signalwire-c
+      tags:
+        - fs-pre
+        - fs             
+        
+        
+    - name: Read spandsp from github
+      ansible.builtin.git:
+        repo: 'https://github.com/freeswitch/spandsp.git'
+        dest: /usr/src/spandsp
+      register: spandsp_dld 
+      tags:
+        - fs-pre
+        - fs    
+        
+    - name: Configuring spandsp source
+      become: yes
+      shell: "./bootstrap.sh  && ./configure"
+      args:
+        chdir: /usr/src/spandsp
+      register: spandsp_configure 
+      tags:
+        - fs-pre
+        - fs          
+
+    - name: Build spandsp
+      become: yes
+      shell: make && make install
+      args:
+        chdir: /usr/src/spandsp
+      tags:
+        - fs-pre
+        - fs                     
+   
+    - name: Read sofia from github
+      ansible.builtin.git:
+        repo: 'https://github.com/freeswitch/sofia-sip.git'
+        dest: /usr/src/sofia-sip
+      register: sofia_dld
+      tags:
+        - fs-pre
+        - fs 
+
+    - name: Configuring sofia source
+      become: yes
+      shell: "./autogen.sh  && ./configure"
+      args:
+        chdir: /usr/src/sofia-sip
+      register: sofia_configure   
+      tags:
+        - fs-pre
+        - fs       
+
+    - name: Build sofia-sip
+      become: yes
+      shell: make && make install
+      args:
+        chdir: /usr/src/sofia-sip
+      tags:
+        - fs-pre
+        - fs             
+
+
+#   - name: Download FreeSwitch source
+#     become: yes
+#     get_url:
+#       url: https://files.freeswitch.org/freeswitch-releases/freeswitch-1.10.7.-release.zip
+#       dest: /usr/src
+#       mode: 0755
+#      tags:
+#        - fs-pre
+#        - fs            
+        
+    - name: Download FreeSwitch source and extract it
+      become: yes
+      ansible.builtin.unarchive:
+        src: https://files.freeswitch.org/freeswitch-releases/freeswitch-1.10.7.-release.zip
+        dest: /usr/src
+        remote_src: yes 
+        list_files: yes
+      register: freeswitch_path        
+      tags:
+        - fs-pre
+        - fs 
+
+    - name: enable python module (FS)
+      become: yes
+      replace:
+        path: "/usr/src/{{ freeswitch_path.files[0] }}modules.conf"
+        regexp: '#languages/mod_python3'
+        replace: 'languages/mod_python3'
+      tags:
+        - fs-pre
+        - fs  
+        
+    - name: enable built-in web module (FS)
+      become: yes
+      replace:
+        path: "/usr/src/{{ freeswitch_path.files[0] }}modules.conf"
+        regexp: '#xml_int/mod_xml_curl'
+        replace: 'xml_int/mod_xml_curl'
+      tags:
+        - fs-pre
+        - fs       
+
+    - name: run ldconfig for spandsp
+      become: yes
+      shell: ldconfig
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_ldconfig   
+      tags:
+        - fs-pre
+        - fs 
+        
+    - name: clean unsuccessfull make
+      become: yes
+      shell: "./configure && make clean"
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_clean
+      ignore_errors: True   
+      tags:
+        - fs-pre
+        - fs 
+                
+    - name: Configuring freeswitch source
+      become: yes
+      shell: "./configure -C --enable-core-pgsql-support --with-python3"
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_configure   
+      tags:
+        - fs-pre
+        - fs 
+        
+    - name: make freeswitch source
+      become: yes
+      shell: make && make install
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_make   
+      tags:
+        - fs-pre
+        - fs         
+        
+    - name: make freeswitch sounds
+      become: yes
+      shell: "make all cd-sounds-install cd-moh-install"
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_make_Sounds  
+      tags:
+        - fs-pre
+        - fs   
+        
+    - name: make esl luamod
+      become: yes
+      shell: make luamod
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}libs/esl"
+      register: FS_make_luamod  
+      tags:
+        - fs-pre
+        - fs         
+
+    - name: make builtin web rpc
+      become: yes
+      shell: make mod_xml_rpc-install
+      args:
+        chdir: "/usr/src/{{ freeswitch_path.files[0] }}"
+      register: FS_make_xml_rpc  
+      tags:
+        - fs-pre
+        - fs         
+
+
+    - name: make lua symlink
+      become: yes
+      ansible.builtin.file:
+        src: /usr/bin/lua
+        dest: /usr/local/bin/lua
+        state: link
+      tags:
+        - fs-config
+        - fs  
+        
+    - name: make freeswitch symlink
+      become: yes
+      ansible.builtin.file:
+        src: /usr/local/freeswitch/bin/freeswitch
+        dest: /usr/bin/freeswitch
+        state: link
+      tags:
+        - fs-config
+        - fs        
+        
+    - name: make fs_cli symlink
+      become: yes
+      ansible.builtin.file:
+        src: /usr/local/freeswitch/bin/fs_cli
+        dest: /usr/bin/fs_cli
+        state: link
+      tags:
+        - fs-config        
+        - fs
+           
+    - name: enable mod_python3 module (FS)
+      become: yes
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/modules.conf.xml"
+        regexp: '<!-- <load module="mod_python3"/> -->'
+        replace: '<load module="mod_python3"/>'
+      tags:
+        - fs-config
+        - fs
+        
+    - name: enable mod_xml_curl module (FS)
+      become: yes
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/modules.conf.xml"
+        regexp: '<!-- <load module="mod_xml_curl"/> -->'
+        replace: '<load module="mod_xml_curl"/>'
+      tags:
+        - fs-config
+        - fs
+
+    - name: enable mod_xml_rpc module (FS)
+      become: yes
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/modules.conf.xml"
+        regexp: '<!-- <load module="mod_xml_rpc"/> -->'
+        replace: '<load module="mod_xml_rpc"/>'
+      tags:
+        - fs-config
+        - fs
+
+    - name: enable websocket in mod_xml_rpc module (FS)
+      become: yes
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/xml_rpc.conf.xml"
+        regexp: '<!--<param name="commands-to-log" value=""/> -->'
+        replace: '<param name="enable-websocket" value="true"/>'
+      tags:
+        - fs-config
+        - fs
+              
+    - name: Make sure we have an 'freeswitch' group
+      when: ansible_os_family == 'Debian' 
+      group:
+        name: freeswitch
+        state: present
+      tags:
+        - fs-config
+        - fs
+
+    - name: add user with less privs
+      become: yes
+      shell: 'adduser --disabled-password --quiet --system --home /usr/local/freeswitch --gecos "FreeSWITCH Voice Platform" --ingroup freeswitch freeswitch'
+      ignore_errors: True
+      tags:
+        - fs-config        
+        - fs
+   
+    - name: freeswitch set directory attr (FS)
+      become: yes
+      ansible.builtin.file:
+        path: "/usr/local/freeswitch/"
+        state: directory
+        recurse: yes
+        owner: freeswitch
+        group: freeswitch
+        mode: u=rwX,g=rwX,o-rwx
+      tags:
+        - fs-config
+        - fs
+
+    - name: freeswitch set bin directory attr (FS)
+      become: yes
+      ansible.builtin.file:
+        path: "/usr/local/freeswitch/bin/"
+        state: directory
+        recurse: yes
+        mode: u+rwx,g=rx,o=rx
+      tags:
+        - fs-config
+        - fs
+        
+    - name: copy service file to remote (FS)
+      become: yes
+      copy:
+        src: "./files/etc-systemd-system-freeswitch.service"
+        dest: "/etc/systemd/system/freeswitch.service"
+        mode: u+x,g+x,o+x
+      tags:
+        - fs-config
+        - fs                
+
+    - name: "Enable and start freeswitch services"
+      become: yes
+      ansible.builtin.service:
+        name: freeswitch
+        state: started
+        enabled: yes     
+      tags:
+        - fs-config
+        - fs  
+
+    - name: restart freeswitch services
+      check_mode: no
+      command: 'systemctl restart freeswitch.service'
+      become: yes
+      tags:
+        - fs-config
+        - fs  
+
+    - name: copy service file to remote (FS)
+      become: yes
+      copy:
+        src: "./files/etc-systemd-system-freeswitch.service"
+        dest: "/etc/systemd/system/freeswitch.service"
+        mode: u+x,g+x,o+x
+      tags:
+        - fs-config
+        - fs   
+
+    - name: add db config to db.conf (FS)
+      become: yes
+      replace:
+        path: '/usr/local/freeswitch/conf/autoload_configs/db.conf.xml'
+        regexp: '<!--<param name="odbc-dsn" value="dsn:user:pass"/>-->'
+        replace: "<param name=\"odbc-dsn\" value=\"pgsql://hostaddr=127.0.0.1 dbname=fscore  user=fsuser password='PASS' \"/>"
+      tags:
+        - fs-config
+        - fs
+
+    - name: add db config to switch.conf (FS)
+      become: yes
+      replace:
+        path: '/usr/local/freeswitch/conf/autoload_configs/switch.conf.xml'
+        regexp: "<!-- <param name=\"core-db-dsn\" value=\"pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password='' options='-c client_min_messages=NOTICE'\" /> -->"
+        replace: "<param name=\"core-db-dsn\" value=\"pgsql://hostaddr=127.0.0.1 dbname=fscore  user=fsuser password='PASS' options='-c client_min_messages=NOTICE' \"/>"
+      notify: Freeswitch reload
+      tags:
+        - fs-config
+        - fs
+
+    - name: copy files to remote (FS)
+      become: yes
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: freeswitch
+        group: freeswitch
+        mode: 0644
+      with_items:
+        - { src: './files/usr-local-freeswitch-scripts-ccfwd.py', dest: '/usr/local/freeswitch/scripts/ccfwd.py' }
+        - { src: './files/usr-local-freeswitch-scripts-config.py', dest: '/usr/local/freeswitch/scripts/config.py' }
+        - { src: './files/usr-local-freeswitch-scripts-database.ini', dest: '/usr/local/freeswitch/scripts/database.ini' }
+        - { src: './files/usr-local-freeswitch-scripts-directory_xml.lua', dest: '/usr/local/freeswitch/scripts/directory_xml.lua' }
+        - { src: './files/usr-local-freeswitch-conf-dialplan-default-01_pydial.xml', dest: '/usr/local/freeswitch/conf/dialplan/default/01_pydial.xml' }
+      tags:
+        - fs-config
+        - fs 
+
+    - name: add dialplan config to lua.conf (FS)
+      become: yes
+      replace:
+        path: '/usr/local/freeswitch/conf/autoload_configs/lua.conf.xml'
+        regexp: '<!--<param name="xml-handler-bindings" value="dialplan"/>-->'
+        replace: '<param name="xml-handler-bindings" value="directory"/>:q:'
+      notify: Freeswitch reload
+      tags:
+        - fs-config
+        - fs
+
+    - name: add script path to lua.conf (FS)
+      become: yes
+      replace:
+        path: '/usr/local/freeswitch/conf/autoload_configs/lua.conf.xml'
+        regexp: '<!--<param name="xml-handler-script" value="/dp.lua"/>-->'
+        replace: '<param name="xml-handler-script" value="/usr/local/freeswitch/scripts/directory_xml.lua"/>'
+      notify: Freeswitch restart  
+      tags:
+        - fs-config
+        - fs
+
+#    - name: insert numbers to DB
+#      command: "{{ item }}"
+#      become: yes
+#      become_user: postgres
+#      ignore_errors: True
+#      tags:
+#        - fs-insert-data
+#        - fs  
+#      with_items:
+#        - echo "INSERT INTO directory (domain, id, \"number-alias\", \"password\", \"user_context\" , \"effective_caller_id_name\" , \"effective_caller_id_number\" , \"outbound_caller_id_name\" , \"outbound_caller_id_number\" , callgroup,accountcode,toll_allow) VALUES ('172.20.104.34', 1023,1023,1023,'default', 'Extension 1023',1023,'FS_Test1023',00001023,'default',1023,'domestic,international,local');" | psql -d fsdir
+
+
+
+
+    - name: log file directory (FS)
+      become: yes
+      ansible.builtin.file:
+        path: "{{ fs_bk_dir }}"
+        mode: 0777
+        owner: freeswitch
+        state: directory
+      tags:
+        - fs-logset
+        - fs
+
+
+    - name: copy log backup file to remote (FS)
+      become: yes
+      copy:
+        src: fslog_cron.sh
+        dest: "/etc/cron.daily"
+      tags:
+        - fs-logset
+        - fs
+        
+        
+    - name:  chmod auto backup file in remote (FS)
+      become: true
+      file: dest=/etc/cron.daily/fslog_cron.sh mode=a+x
+      tags:
+        - fs-logset
+        - fs
+
+
+    - name: Set retention to 7days (FS)
+      replace:
+        path: "/usr/local/freeswitch/conf/autoload_configs/logfile.conf.xml"
+        regexp: 'name="maximum-rotate" value="32"'
+        replace: 'name="maximum-rotate" value="7"'
+      tags:
+        - fs-logset
+        - fs
 
 
     - name:  allow ssh in firewall
@@ -267,65 +810,6 @@
       become: true
       tags:
         - ufw
-    
-    - name: add daily log rotation with 7days retention (postgres )
-      lineinfile:
-        state: present
-        insertafter: EOF
-        dest: "{{ postgresql_conf }}/postgresql.conf"
-        line: "{{ item }}"
-      with_items:
-       - "log_directory = 'log' "
-       - "log_filename = 'postgresql-%a.log'"
-       - "log_file_mode = 0600"
-       - "log_truncate_on_rotation = on"
-       - "log_rotation_age = 1d"
-      tags:
-        - psql
-        - logset
-
-
-    - name: log file directory (FS)
-      become: true
-      ansible.builtin.file:
-        path: "{{ fs_bk_dir }}"
-        mode: 0777
-        owner: freeswitch
-        state: directory
-      tags:
-        - fslogset
-        - fs
-
-
-    - name: copy log backup file to remote (FS)
-      become: true
-      copy:
-        src: fslog_cron.sh
-        dest: "/etc/cron.daily"
-      tags:
-        - fslogset
-        - fs
         
-        
-    - name:  chmod auto backup file in remote (FS)
-      become: true
-      file: dest=/etc/cron.daily/fslog_cron.sh mode=a+x
-      tags:
-        - fslogset
-        - fs
-
-
-    - name: Set retention to 7days (FS)
-      replace:
-        path: "/usr/local/freeswitch/conf/autoload_configs/logfile.conf.xml"
-        regexp: 'name="maximum-rotate" value="32"'
-        replace: 'name="maximum-rotate" value="7"'
-      tags:
-        - fslogset
-        - fs
-
-
   handlers:
-    - name: restart postgres
-      service: name=postgresql state=restarted
-
+    - include: 'handlers/main.yml'
