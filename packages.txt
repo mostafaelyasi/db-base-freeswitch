@@ -50,3 +50,5 @@ libgdbm-dev
 libdb-dev
 uuid-dev
 libsndfile1-dev
+sshpass
+lua5.2
