@@ -1099,5 +1099,15 @@ ALTER TABLE ONLY public.user_map
 
 
 --
+-- Data for Name: directory; Type: TABLE DATA; Schema: public; Owner: fsuser
+--
+
+INSERT INTO public.directory(domain,id,"number-alias","password","user_context", "effective_caller_id_name", "effective_caller_id_number","outbound_caller_id_name" ,"outbound_caller_id_number", callgroup,accountcode,toll_allow) VALUES ('172.20.104.34', 1020,1020,1020,'default', 'Extension 1020',1020,'FS_Test1023',00001020,'default',1020,'domestic,international,local');
+INSERT INTO public.directory(domain,id,"number-alias","password","user_context", "effective_caller_id_name", "effective_caller_id_number","outbound_caller_id_name" ,"outbound_caller_id_number", callgroup,accountcode,toll_allow) VALUES ('172.20.104.34', 1021,1021,1021,'default', 'Extension 1021',1021,'FS_Test1023',00001021,'default',1021,'domestic,international,local');
+INSERT INTO public.directory(domain,id,"number-alias","password","user_context", "effective_caller_id_name", "effective_caller_id_number","outbound_caller_id_name" ,"outbound_caller_id_number", callgroup,accountcode,toll_allow) VALUES ('172.20.104.34', 1022,1022,1022,'default', 'Extension 1022',1022,'FS_Test1023',00001022,'default',1022,'domestic,international,local');
+INSERT INTO public.directory(domain,id,"number-alias","password","user_context", "effective_caller_id_name", "effective_caller_id_number","outbound_caller_id_name" ,"outbound_caller_id_number", callgroup,accountcode,toll_allow) VALUES ('172.20.104.34', 1023,1023,1023,'default', 'Extension 1023',1023,'FS_Test1023',00001023,'default',1023,'domestic,international,local');
+
+
+--
 -- PostgreSQL database dump complete
 --
