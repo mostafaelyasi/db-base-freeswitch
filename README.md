@@ -39,3 +39,21 @@ It has been tested on ubuntu 20.04
 7- configuration of ubuntu firewall to block out access to unused ports on the VM and have limitation on ssh port
 
 * ansible-playbook ansi_playbook.yml -t ufw
+
+
+---
+
+These numbers are created in database:
+1020,1021,1022,1023
+
+when 1022 or 1023 is not registered then call to that number will forward to 1021
+
+---
+
+built-in web page has been enabled and it is possible to monitor the calls from below link:
+
+http://172.20.104.34:8080/portal/index.html#
+
+user:freeswitch
+
+pass:works
