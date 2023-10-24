@@ -52,7 +52,7 @@ when 1022 or 1023 is not registered then call to that number will forward to 102
 
 built-in web page has been enabled and it is possible to monitor the calls from below link:
 
-http://172.20.104.34:8080/portal/index.html#
+http://x.x.x.x:8080/portal/index.html#
 
 user:freeswitch
 
